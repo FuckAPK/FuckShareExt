@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="desc_enable_hook">需要 xposed</string>
+    <string name="title_enable_hook">开启 Hook</string>
+    <string name="title_exclude_packages">排除包名</string>
+    <string name="desc_exclude_packages">来自这些软件包的intent永远不会被hook（用逗号或空格分隔，留空禁用，例如：com.app, com.app:image/*, *:image/png）</string>
+</resources>

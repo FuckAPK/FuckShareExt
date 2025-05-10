@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="app_name" translatable="false">Fuck Share Extension</string>
+    <string name="app_desc" translatable="false">Xposed Module for Fuck Share!</string>
+    <string name="title_enable_force_forward_hook" translatable="false">Hook SEND SEND_MULTIPLE</string>
+    <string name="desc_enable_force_picker_hook" translatable="false">android.intent.action.PICK</string>
+    <string name="title_enable_force_picker_hook" translatable="false">Hook PICK</string>
+    <string name="desc_enable_force_content_hook" translatable="false">android.intent.action.GET_CONTENT</string>
+    <string name="title_enable_force_content_hook" translatable="false">Hook GET_CONTENT</string>
+    <string name="desc_enable_hook">need xposed to work</string>
+    <string name="title_enable_hook">Enable hook</string>
+    <string name="desc_enable_force_forward_hook" translatable="false">android.intent.action.SEND android.intent.action.SEND_MULTIPLE</string>
+    <string name="title_hook" translatable="false">Hook</string>
+    <string name="desc_enable_force_document_hook" translatable="false">android.intent.action.OPEN_DOCUMENT</string>
+    <string name="title_enable_force_document_hook" translatable="false">Hook OPEN_DOCUMENT</string>
+    <string name="title_exclude_packages">Exclude packages</string>
+    <string name="desc_exclude_packages">intent from these packages will never be hooked (separate by comma or space, blank to disable, e.g., com.app, com.app:image/*, *:image/png)</string>
+    >
+</resources>
