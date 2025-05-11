@@ -64,7 +64,8 @@ android {
     }
 }
 dependencies {
-    implementation("androidx.preference:preference-ktx:1.2.1")
+    implementation(project(":ui"))
+
     implementation("com.google.android.material:material:1.12.0")
     compileOnly("de.robv.android.xposed:api:82")
 

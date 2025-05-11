@@ -22,3 +22,4 @@ dependencyResolutionManagement {
 rootProject.name = "Fuck Share Extension"
 
 include(":app")
+include(":ui")
