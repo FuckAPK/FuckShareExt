@@ -93,6 +93,29 @@ class MainHook : IXposedHookLoadPackage {
         }.onSuccess {
             XposedBridge.log("FS: hooked StartActivityIntentSender")
         }
+
+        val pendingIntentRecordClass = runCatching {
+            XposedHelpers.findClass(
+                "com.android.server.am.PendingIntentRecord",
+                lpparam.classLoader
+            )
+        }.onFailure {
+            XposedBridge.log(it)
+        }.getOrNull()
+
+        if (pendingIntentRecordClass != null) {
+            runCatching {
+                XposedBridge.hookAllMethods(
+                    pendingIntentRecordClass,
+                    "sendInner",
+                    PendingIntentRecordSendInnerHook
+                )
+            }.onFailure {
+                XposedBridge.log(it)
+            }.onSuccess {
+                XposedBridge.log("FS: hooked PendingIntentRecord.sendInner")
+            }
+        }
     }
 
     private fun hookActivity(lpparam: LoadPackageParam) {
@@ -148,6 +171,28 @@ class MainHook : IXposedHookLoadPackage {
                     XposedHelpers.getObjectField(key, "packageName") as String
                 process(intent, callingPackage)?.let {
                     param.args[3] = it
+                }
+            }.onFailure {
+                XposedBridge.log(it)
+            }
+        }
+    }
+
+    private object PendingIntentRecordSendInnerHook : XC_MethodHook() {
+        override fun beforeHookedMethod(param: MethodHookParam) {
+            runCatching {
+                val record = param.thisObject
+                val key = XposedHelpers.getObjectField(record, "key")
+                
+                // type 2 is ActivityManager.INTENT_SENDER_ACTIVITY
+                val type = XposedHelpers.getIntField(key, "type")
+                if (type != 2) return
+                
+                val intent = XposedHelpers.getObjectField(key, "requestIntent") as? Intent ?: return
+                val callingPackage = XposedHelpers.getObjectField(key, "packageName") as String
+                
+                process(intent, callingPackage)?.let {
+                    XposedHelpers.setObjectField(key, "requestIntent", it)
                 }
             }.onFailure {
                 XposedBridge.log(it)
