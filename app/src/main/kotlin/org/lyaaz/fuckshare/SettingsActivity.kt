@@ -23,7 +23,9 @@ import org.lyaaz.ui.theme.AppTheme as Theme
 
 class SettingsActivity : ComponentActivity(),XposedServiceHelper.OnServiceListener{
 
-    private var mService: XposedService? = null
+    companion object {
+        private var mService: XposedService? = null
+    }
     private lateinit var setting: Settings
     private lateinit var prefs: SharedPreferences
     private var isReady by mutableStateOf(false)
@@ -31,6 +33,7 @@ class SettingsActivity : ComponentActivity(),XposedServiceHelper.OnServiceListen
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        mService?.let { onServiceBind(it) }
         XposedServiceHelper.registerListener(this)
         enableEdgeToEdge()
         currentUiMode = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
