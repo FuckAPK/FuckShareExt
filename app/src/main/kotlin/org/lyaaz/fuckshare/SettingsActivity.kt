@@ -11,27 +11,34 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.content.edit
-import org.lyaaz.fuckshare.utils.AppUtils
+import io.github.libxposed.service.XposedService
+import io.github.libxposed.service.XposedServiceHelper
 import org.lyaaz.ui.PreferenceCategory
 import org.lyaaz.ui.SwitchPreferenceItem
 import org.lyaaz.ui.TextFieldPreference
 import org.lyaaz.ui.keyboardAsState
 import org.lyaaz.ui.theme.AppTheme as Theme
 
-class SettingsActivity : ComponentActivity() {
+class SettingsActivity : ComponentActivity(),XposedServiceHelper.OnServiceListener{
 
+    private var mService: XposedService? = null
+    private lateinit var setting: Settings
+    private lateinit var prefs: SharedPreferences
+    private var isReady by mutableStateOf(false)
     private var currentUiMode: Int? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        XposedServiceHelper.registerListener(this)
         enableEdgeToEdge()
         currentUiMode = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
         setContent {
             Theme {
-                SettingsScreen()
+                if (isReady) {
+                    SettingsScreen(prefs, setting)
+                }
             }
         }
     }
@@ -43,22 +50,25 @@ class SettingsActivity : ComponentActivity() {
             recreate()
         }
     }
-}
 
-@Preview
-@Composable
-fun SettingsScreenPreview() {
-    Theme {
-        SettingsScreen()
+    override fun onServiceBind(service: XposedService) {
+        mService = service
+        prefs = service.getRemotePreferences("${BuildConfig.APPLICATION_ID}_preferences")
+        setting = Settings.getInstance(prefs)
+        isReady = true
+    }
+
+    override fun onServiceDied(service: XposedService) {
+        mService = null
+        isReady = false
     }
 }
 
 @Composable
-fun SettingsScreen() {
-    val context = LocalContext.current
+fun SettingsScreen(prefs: SharedPreferences, settings: Settings) {
     val focusManager = LocalFocusManager.current
-    val prefs = remember { AppUtils.getPrefs(context) }
-    val settings = remember { Settings.getInstance(prefs) }
+    val prefs = remember { prefs }
+    val settings = remember { settings }
     val isKeyboardOpen by keyboardAsState()
 
     LaunchedEffect(isKeyboardOpen) {
