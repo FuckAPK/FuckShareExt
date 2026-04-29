@@ -183,7 +183,9 @@ class MainHook : XposedModule() {
                 val callingPackage = getField(key, "packageName") as? String ?: ""
                 if (intent != null) {
                     process(intent, callingPackage)?.let { newIntent ->
-                        setField(key, "requestIntent", newIntent)
+                        val args = chain.args.toMutableList()
+                        args[3] = newIntent
+                        return chain.proceed(args.toTypedArray())
                     }
                 }
             }.onFailure {

@@ -54,11 +54,11 @@ class Settings private constructor(private val prefs: SharedPreferences) {
         const val PREF_ENABLE_FORCE_DOCUMENT_HOOK = "enable_force_document_hook"
         const val PREF_ENABLE_FORCE_PICKER_HOOK = "enable_force_picker_hook"
 
-        const val DEFAULT_ENABLE_HOOK = true
+        const val DEFAULT_ENABLE_HOOK = false
         val DEFAULT_EXCLUDE_PACKAGES = setOf(
             "com.android.providers.media.module"
         )
-        const val DEFAULT_ENABLE_FORCE_FORWARD_HOOK = true
+        const val DEFAULT_ENABLE_FORCE_FORWARD_HOOK = false
         const val DEFAULT_ENABLE_FORCE_CONTENT_HOOK = false
         const val DEFAULT_ENABLE_FORCE_DOCUMENT_HOOK = false
         const val DEFAULT_ENABLE_FORCE_PICKER_HOOK = false
