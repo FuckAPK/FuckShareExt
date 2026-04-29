@@ -33,11 +33,7 @@ class MainHook : XposedModule() {
 
     override fun onPackageReady(param: PackageReadyParam) {
         if (!param.isFirstPackage()) return
-        if (param.packageName == FUCK_SHARE_PACKAGE_NAME) {
-            prefs = getRemotePreferences("${BuildConfig.APPLICATION_ID}_preferences")
-            settings = Settings.reset(prefs)
-            return
-        }
+        if (param.packageName == FUCK_SHARE_PACKAGE_NAME) return
         hookActivity()
     }
 
@@ -187,9 +183,7 @@ class MainHook : XposedModule() {
                 val callingPackage = getField(key, "packageName") as? String ?: ""
                 if (intent != null) {
                     process(intent, callingPackage)?.let { newIntent ->
-                        val args = chain.args.toMutableList()
-                        args[3] = newIntent
-                        return chain.proceed(args.toTypedArray())
+                        setField(key, "requestIntent", newIntent)
                     }
                 }
             }.onFailure {
