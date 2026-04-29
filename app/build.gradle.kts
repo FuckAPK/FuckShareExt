@@ -62,12 +62,17 @@ android {
     buildFeatures {
         buildConfig = true
     }
+    packaging {
+        resources {
+            merges += "META-INF/xposed/*"
+        }
+    }
 }
 dependencies {
     implementation(project(":ui"))
 
     implementation("com.google.android.material:material:1.12.0")
-    compileOnly("de.robv.android.xposed:api:82")
+    compileOnly("io.github.libxposed:api:101.0.1")
 
     // compose
     val composeBom = platform("androidx.compose:compose-bom:2025.05.00")
