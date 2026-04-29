@@ -16,14 +16,14 @@ fun String.execute(currentWorkingDir: File = file("./")): String {
 
 android {
     namespace = "org.lyaaz.fuckshare"
-    compileSdk = 35
+    compileSdk = 36
     defaultConfig {
         applicationId = "org.lyaaz.fuckshare.ext"
         minSdk = 30
-        targetSdk = 35
+        targetSdk = 36
         versionCode = "git rev-list HEAD --count".execute().toInt()
         versionName = "git describe --tag --always".execute().removePrefix("v")
-        resourceConfigurations += setOf("en", "zh-rCN")
+        androidResources.localeFilters += setOf("en", "zh-rCN")
         vectorDrawables.useSupportLibrary = true
     }
     androidResources {
@@ -62,12 +62,19 @@ android {
     buildFeatures {
         buildConfig = true
     }
+    packaging {
+        resources {
+            merges += "META-INF/xposed/*"
+        }
+    }
 }
 dependencies {
     implementation(project(":ui"))
 
     implementation("com.google.android.material:material:1.12.0")
-    compileOnly("de.robv.android.xposed:api:82")
+
+    implementation("io.github.libxposed:service:101.0.0")
+    compileOnly("io.github.libxposed:api:101.0.1")
 
     // compose
     val composeBom = platform("androidx.compose:compose-bom:2025.05.00")

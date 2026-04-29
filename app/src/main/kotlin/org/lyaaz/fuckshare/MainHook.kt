@@ -2,55 +2,56 @@ package org.lyaaz.fuckshare
 
 import android.app.Activity
 import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.service.chooser.ChooserAction
-import de.robv.android.xposed.IXposedHookLoadPackage
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XSharedPreferences
-import de.robv.android.xposed.XposedBridge
-import de.robv.android.xposed.XposedHelpers
-import de.robv.android.xposed.callbacks.XC_LoadPackage.LoadPackageParam
+import android.util.Log
+import io.github.libxposed.api.XposedInterface.Chain
+import io.github.libxposed.api.XposedInterface.Hooker
+import io.github.libxposed.api.XposedModule
+import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam
+import io.github.libxposed.api.XposedModuleInterface.PackageReadyParam
+import io.github.libxposed.api.XposedModuleInterface.SystemServerStartingParam
 import org.lyaaz.fuckshare.utils.IntentUtils
-import kotlin.text.split
+import java.lang.reflect.Field
 
-class MainHook : IXposedHookLoadPackage {
+class MainHook : XposedModule() {
 
-    override fun handleLoadPackage(lpparam: LoadPackageParam) {
-        if (!lpparam.isFirstApplication) {
-            return
-        }
-        when (lpparam.packageName) {
-            FUCK_SHARE_PACKAGE_NAME -> {
-                return
-            }
+    private lateinit var prefs: SharedPreferences
+    private lateinit var settings: Settings
 
-            "android" -> {
-                hookSystem(lpparam)
-            }
-
-            else -> {
-                hookActivity(lpparam)
-            }
-        }
+    override fun onModuleLoaded(param: ModuleLoadedParam) {
+        prefs = getRemotePreferences("${BuildConfig.APPLICATION_ID}_preferences")
+        settings = Settings.getInstance(prefs)
     }
 
-    private fun hookSystem(lpparam: LoadPackageParam) {
+    override fun onSystemServerStarting(param: SystemServerStartingParam) {
+        hookSystem(param.classLoader)
+    }
+
+    override fun onPackageReady(param: PackageReadyParam) {
+        if (!param.isFirstPackage()) return
+        if (param.packageName == FUCK_SHARE_PACKAGE_NAME) return
+        hookActivity()
+    }
+
+    private fun hookSystem(classLoader: ClassLoader) {
         val activityTaskManagerServiceClass = runCatching {
-            XposedHelpers.findClass(
+            Class.forName(
                 "com.android.server.wm.ActivityTaskManagerService",
-                lpparam.classLoader
+                false,
+                classLoader
             )
         }.onFailure {
-            XposedBridge.log(it)
+            log(Log.ERROR, TAG, "Failed to find ActivityTaskManagerService", it)
         }.getOrNull() ?: return
 
         runCatching {
-            XposedHelpers.findAndHookMethod(
-                activityTaskManagerServiceClass,
+            val method = activityTaskManagerServiceClass.getDeclaredMethod(
                 "startActivityAsUser",
-                "android.app.IApplicationThread",
+                classLoader.loadClass("android.app.IApplicationThread"),
                 String::class.java,
                 String::class.java,
                 Intent::class.java,
@@ -59,24 +60,23 @@ class MainHook : IXposedHookLoadPackage {
                 String::class.java,
                 Int::class.javaPrimitiveType,
                 Int::class.javaPrimitiveType,
-                "android.app.ProfilerInfo",
+                classLoader.loadClass("android.app.ProfilerInfo"),
                 Bundle::class.java,
                 Int::class.javaPrimitiveType,
-                Boolean::class.javaPrimitiveType,
-                StartActivityAsUserHook
+                Boolean::class.javaPrimitiveType
             )
+            hook(method).intercept(StartActivityAsUserHooker())
         }.onFailure {
-            XposedBridge.log(it)
+            log(Log.ERROR, TAG, "Failed to hook startActivityAsUser", it)
         }.onSuccess {
-            XposedBridge.log("FS: hooked StartActivityAsUser")
+            log(Log.INFO, TAG, "FS: hooked StartActivityAsUser")
         }
 
         runCatching {
-            XposedHelpers.findAndHookMethod(
-                activityTaskManagerServiceClass,
+            val method = activityTaskManagerServiceClass.getDeclaredMethod(
                 "startActivityIntentSender",
-                "android.app.IApplicationThread",
-                "android.content.IIntentSender",
+                classLoader.loadClass("android.app.IApplicationThread"),
+                classLoader.loadClass("android.content.IIntentSender"),
                 IBinder::class.java,
                 Intent::class.java,
                 String::class.java,
@@ -85,132 +85,214 @@ class MainHook : IXposedHookLoadPackage {
                 Int::class.javaPrimitiveType,
                 Int::class.javaPrimitiveType,
                 Int::class.javaPrimitiveType,
-                Bundle::class.java,
-                StartActivityIntentSenderHook
+                Bundle::class.java
             )
+            hook(method).intercept(StartActivityIntentSenderHooker())
         }.onFailure {
-            XposedBridge.log(it)
+            log(Log.ERROR, TAG, "Failed to hook startActivityIntentSender", it)
         }.onSuccess {
-            XposedBridge.log("FS: hooked StartActivityIntentSender")
+            log(Log.INFO, TAG, "FS: hooked StartActivityIntentSender")
         }
 
         val pendingIntentRecordClass = runCatching {
-            XposedHelpers.findClass(
+            Class.forName(
                 "com.android.server.am.PendingIntentRecord",
-                lpparam.classLoader
+                false,
+                classLoader
             )
         }.onFailure {
-            XposedBridge.log(it)
+            log(Log.ERROR, TAG, "Failed to find PendingIntentRecord", it)
         }.getOrNull()
 
         if (pendingIntentRecordClass != null) {
             runCatching {
-                XposedBridge.hookAllMethods(
-                    pendingIntentRecordClass,
-                    "sendInner",
-                    PendingIntentRecordSendInnerHook
-                )
+                var hooked = 0
+                pendingIntentRecordClass.declaredMethods
+                    .filter { it.name == "sendInner" }
+                    .forEach { method ->
+                        hook(method).intercept(PendingIntentRecordSendInnerHooker())
+                        hooked++
+                    }
+                if (hooked == 0) error("no sendInner methods found")
             }.onFailure {
-                XposedBridge.log(it)
+                log(Log.ERROR, TAG, "Failed to hook PendingIntentRecord.sendInner", it)
             }.onSuccess {
-                XposedBridge.log("FS: hooked PendingIntentRecord.sendInner")
+                log(Log.INFO, TAG, "FS: hooked PendingIntentRecord.sendInner")
             }
         }
     }
 
-    private fun hookActivity(lpparam: LoadPackageParam) {
+    private fun hookActivity() {
         runCatching {
-            XposedHelpers.findAndHookMethod(
-                Activity::class.java,
+            val method = Activity::class.java.getDeclaredMethod(
                 "startActivityForResult",
                 Intent::class.java,
                 Int::class.javaPrimitiveType,
-                Bundle::class.java,
-                StartActivityForResultHook
+                Bundle::class.java
             )
+            hook(method).intercept(StartActivityForResultHooker())
         }.onFailure {
-            XposedBridge.log(it)
+            log(Log.ERROR, TAG, "Failed to hook startActivityForResult", it)
         }.onSuccess {
-            XposedBridge.log("FS: hooked ${lpparam.packageName}")
+            log(Log.INFO, TAG, "FS: hooked startActivityForResult")
         }
     }
 
-    private object StartActivityForResultHook : XC_MethodHook() {
-        override fun beforeHookedMethod(param: MethodHookParam) {
+    private inner class StartActivityForResultHooker : Hooker {
+        override fun intercept(chain: Chain): Any? {
             runCatching {
-                val intent = param.args[0] as Intent
-                process(intent, "")?.let {
-                    param.args[0] = it
+                val intent = chain.getArg(0) as? Intent
+                if (intent != null) {
+                    process(intent, "")?.let { newIntent ->
+                        val args = chain.args.toMutableList()
+                        args[0] = newIntent
+                        return chain.proceed(args.toTypedArray())
+                    }
                 }
             }.onFailure {
-                XposedBridge.log(it)
+                log(Log.ERROR, TAG, "Error in startActivityForResult hook", it)
             }
+            return chain.proceed()
         }
     }
 
-    private object StartActivityAsUserHook : XC_MethodHook() {
-        override fun beforeHookedMethod(param: MethodHookParam) {
+    private inner class StartActivityAsUserHooker : Hooker {
+        override fun intercept(chain: Chain): Any? {
             runCatching {
-                val callingPackage = param.args[1] as String
-                val intent = param.args[3] as Intent
-                process(intent, callingPackage)?.let {
-                    param.args[3] = it
+                val callingPackage = chain.getArg(1) as? String ?: ""
+                val intent = chain.getArg(3) as? Intent
+                if (intent != null) {
+                    process(intent, callingPackage)?.let { newIntent ->
+                        val args = chain.args.toMutableList()
+                        args[3] = newIntent
+                        return chain.proceed(args.toTypedArray())
+                    }
                 }
             }.onFailure {
-                XposedBridge.log(it)
+                log(Log.ERROR, TAG, "Error in startActivityAsUser hook", it)
             }
+            return chain.proceed()
         }
     }
 
-    private object StartActivityIntentSenderHook : XC_MethodHook() {
-        override fun beforeHookedMethod(param: MethodHookParam) {
+    private inner class StartActivityIntentSenderHooker : Hooker {
+        override fun intercept(chain: Chain): Any? {
             runCatching {
-                val key = XposedHelpers.getObjectField(param.args[1], "key")
-                val intent = XposedHelpers.getObjectField(key, "requestIntent") as Intent
-                val callingPackage =
-                    XposedHelpers.getObjectField(key, "packageName") as String
-                process(intent, callingPackage)?.let {
-                    param.args[3] = it
+                val key = getField(chain.getArg(1), "key")
+                val intent = getField(key, "requestIntent") as? Intent
+                val callingPackage = getField(key, "packageName") as? String ?: ""
+                if (intent != null) {
+                    process(intent, callingPackage)?.let { newIntent ->
+                        val args = chain.args.toMutableList()
+                        args[3] = newIntent
+                        return chain.proceed(args.toTypedArray())
+                    }
                 }
             }.onFailure {
-                XposedBridge.log(it)
+                log(Log.ERROR, TAG, "Error in startActivityIntentSender hook", it)
             }
+            return chain.proceed()
         }
     }
 
-    private object PendingIntentRecordSendInnerHook : XC_MethodHook() {
-        override fun beforeHookedMethod(param: MethodHookParam) {
+    private inner class PendingIntentRecordSendInnerHooker : Hooker {
+        override fun intercept(chain: Chain): Any? {
             runCatching {
-                val record = param.thisObject
-                val key = XposedHelpers.getObjectField(record, "key")
-                
+                val record = chain.thisObject
+                val key = getField(record, "key")
+
                 // type 2 is ActivityManager.INTENT_SENDER_ACTIVITY
-                val type = XposedHelpers.getIntField(key, "type")
-                if (type != 2) return
-                
-                val intent = XposedHelpers.getObjectField(key, "requestIntent") as? Intent ?: return
-                val callingPackage = XposedHelpers.getObjectField(key, "packageName") as String
-                
+                val type = getField(key, "type") as? Int ?: return chain.proceed()
+                if (type != 2) return chain.proceed()
+
+                val intent = getField(key, "requestIntent") as? Intent ?: return chain.proceed()
+                val callingPackage = getField(key, "packageName") as? String ?: ""
+
                 process(intent, callingPackage)?.let {
-                    XposedHelpers.setObjectField(key, "requestIntent", it)
+                    setField(key, "requestIntent", it)
                 }
             }.onFailure {
-                XposedBridge.log(it)
+                log(Log.ERROR, TAG, "Error in PendingIntentRecord.sendInner hook", it)
             }
+            return chain.proceed()
+        }
+    }
+
+    private fun process(intent: Intent, callingPackage: String): Intent? {
+        if (callingPackage == FUCK_SHARE_PACKAGE_NAME || intent.action !in hookedIntents) {
+            return null
+        }
+
+        if (!settings.enableHook || callingPackage in settings.excludePackages) {
+            return null
+        }
+        val extraIntent = retrieveExtraIntent(Intent(intent)) ?: return null
+        if (excludeRuleMatch(settings.excludePackages, callingPackage, extraIntent.type)) {
+            return null
+        }
+        if (!actionHookEnabled(extraIntent.action)) {
+            return null
+        }
+        val className = actionClassMap[extraIntent.action] ?: return null
+
+        return extraIntent.apply {
+            setClassName(FUCK_SHARE_PACKAGE_NAME, className)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        }.also {
+            log(Log.INFO, TAG, "FS: hooked from $callingPackage, intent: $intent, to: $this")
+        }
+    }
+
+    private fun actionHookEnabled(action: String?): Boolean {
+        return actionHookEnableMap.getOrDefault(action) { false }.invoke()
+    }
+
+    private val actionHookEnableMap = mapOf(
+        Intent.ACTION_SEND to { settings.enableForceForwardHook },
+        Intent.ACTION_SEND_MULTIPLE to { settings.enableForceForwardHook },
+        Intent.ACTION_PICK to { settings.enableForcePickerHook },
+        Intent.ACTION_GET_CONTENT to { settings.enableForceContentHook },
+        Intent.ACTION_OPEN_DOCUMENT to { settings.enableForceDocumentHook }
+    )
+
+    private fun retrieveExtraIntent(intent: Intent): Intent? {
+        return if (intent.action == Intent.ACTION_CHOOSER) {
+            IntentUtils.getParcelableExtra(
+                intent,
+                Intent.EXTRA_INTENT,
+                Intent::class.java
+            )?.apply {
+                setOf(Intent.EXTRA_INITIAL_INTENTS, Intent.EXTRA_ALTERNATE_INTENTS).forEach {
+                    IntentUtils.backupArrayExtras<Intent>(
+                        intent,
+                        this,
+                        it
+                    )
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    IntentUtils.backupArrayExtras<ChooserAction>(
+                        intent,
+                        this,
+                        Intent.EXTRA_CHOOSER_CUSTOM_ACTIONS
+                    )
+                }
+            } ?: return null
+        } else {
+            intent.component?.let {
+                if (it.packageName != "com.android.documentsui") {
+                    return null
+                }
+            }
+            intent
         }
     }
 
     companion object {
+        private const val TAG = "FuckShareExt"
         private const val FUCK_SHARE_PACKAGE_NAME = "org.lyaaz.fuckshare"
         private const val HANDLE_SHARE_ACTIVITY_NAME = "$FUCK_SHARE_PACKAGE_NAME.HandleShareActivity"
         private const val CONTENT_PROXY_ACTIVITY = "$FUCK_SHARE_PACKAGE_NAME.ContentProxyActivity"
 
-        private val prefs: XSharedPreferences by lazy {
-            XSharedPreferences(BuildConfig.APPLICATION_ID)
-        }
-        private val settings: Settings by lazy {
-            Settings.getInstance(prefs)
-        }
         private val hookedIntents = setOf(
             Intent.ACTION_CHOOSER,
             Intent.ACTION_SEND,
@@ -219,13 +301,6 @@ class MainHook : IXposedHookLoadPackage {
             Intent.ACTION_GET_CONTENT,
             Intent.ACTION_OPEN_DOCUMENT
         )
-        private val actionHookEnableMap = mapOf(
-            Intent.ACTION_SEND to { settings.enableForceForwardHook },
-            Intent.ACTION_SEND_MULTIPLE to { settings.enableForceForwardHook },
-            Intent.ACTION_PICK to { settings.enableForcePickerHook },
-            Intent.ACTION_GET_CONTENT to { settings.enableForceContentHook },
-            Intent.ACTION_OPEN_DOCUMENT to { settings.enableForceDocumentHook }
-        )
         private val actionClassMap = mapOf(
             Intent.ACTION_SEND to HANDLE_SHARE_ACTIVITY_NAME,
             Intent.ACTION_SEND_MULTIPLE to HANDLE_SHARE_ACTIVITY_NAME,
@@ -233,10 +308,6 @@ class MainHook : IXposedHookLoadPackage {
             Intent.ACTION_GET_CONTENT to CONTENT_PROXY_ACTIVITY,
             Intent.ACTION_OPEN_DOCUMENT to CONTENT_PROXY_ACTIVITY
         )
-
-        private fun actionHookEnabled(action: String?): Boolean {
-            return actionHookEnableMap.getOrDefault(action) { false }.invoke()
-        }
 
         private fun excludeRuleMatch(
             rules: Set<String>,
@@ -259,62 +330,35 @@ class MainHook : IXposedHookLoadPackage {
             }
         }
 
-        private fun process(intent: Intent, callingPackage: String): Intent? {
-            if (callingPackage == FUCK_SHARE_PACKAGE_NAME || intent.action !in hookedIntents) {
-                return null
+        private fun getField(obj: Any?, fieldName: String): Any? {
+            if (obj == null) return null
+            var clazz: Class<*>? = obj.javaClass
+            while (clazz != null) {
+                val current = clazz
+                runCatching {
+                    val field: Field = current.getDeclaredField(fieldName)
+                    field.isAccessible = true
+                    return field.get(obj)
+                }
+                clazz = clazz.superclass
             }
-
-            prefs.reload()
-            if (!settings.enableHook || callingPackage in settings.excludePackages) {
-                return null
-            }
-            val extraIntent = retrieveExtraIntent(Intent(intent)) ?: return null
-            if (excludeRuleMatch(settings.excludePackages, callingPackage, extraIntent.type)) {
-                return null
-            }
-            if (!actionHookEnabled(extraIntent.action)) {
-                return null
-            }
-            val className = actionClassMap[extraIntent.action] ?: return null
-
-            return extraIntent.apply {
-                setClassName(FUCK_SHARE_PACKAGE_NAME, className)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-            }.also {
-                XposedBridge.log("FS: hooked from $callingPackage, intent: $intent, to: $this")
-            }
+            throw NoSuchFieldException("Field $fieldName not found in ${obj.javaClass}")
         }
 
-        private fun retrieveExtraIntent(intent: Intent): Intent? {
-            return if (intent.action == Intent.ACTION_CHOOSER) {
-                IntentUtils.getParcelableExtra(
-                    intent,
-                    Intent.EXTRA_INTENT,
-                    Intent::class.java
-                )?.apply {
-                    setOf(Intent.EXTRA_INITIAL_INTENTS, Intent.EXTRA_ALTERNATE_INTENTS).forEach {
-                        IntentUtils.backupArrayExtras<Intent>(
-                            intent,
-                            this,
-                            it
-                        )
-                    }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                        IntentUtils.backupArrayExtras<ChooserAction>(
-                            intent,
-                            this,
-                            Intent.EXTRA_CHOOSER_CUSTOM_ACTIONS
-                        )
-                    }
-                } ?: return null
-            } else {
-                intent.component?.let {
-                    if (it.packageName != "com.android.documentsui") {
-                        return null
-                    }
+        private fun setField(obj: Any?, fieldName: String, value: Any?) {
+            if (obj == null) return
+            var clazz: Class<*>? = obj.javaClass
+            while (clazz != null) {
+                val current = clazz
+                runCatching {
+                    val field: Field = current.getDeclaredField(fieldName)
+                    field.isAccessible = true
+                    field.set(obj, value)
+                    return
                 }
-                intent
+                clazz = clazz.superclass
             }
+            throw NoSuchFieldException("Field $fieldName not found in ${obj.javaClass}")
         }
     }
 }
