@@ -1,90 +1,28 @@
-import java.util.Properties
-
 plugins {
-    id("com.android.application")
-    id("kotlin-android")
-    id("org.jetbrains.kotlin.plugin.compose") version "2.1.20"
-}
-
-fun String.execute(currentWorkingDir: File = file("./")): String {
-    return providers.exec {
-        isIgnoreExitValue = true
-        workingDir = currentWorkingDir
-        commandLine = split("\\s".toRegex())
-    }.standardOutput.asText.get().trim()
+    id("fuck.android.application")
+    id("fuck.compose")
+    id("fuck.xposed.modern")
 }
 
 android {
     namespace = "org.lyaaz.fuckshare"
-    compileSdk = 36
     defaultConfig {
         applicationId = "org.lyaaz.fuckshare.ext"
         minSdk = 30
-        targetSdk = 36
-        versionCode = "git rev-list HEAD --count".execute().toInt()
-        versionName = "git describe --tag --always".execute().removePrefix("v")
-        androidResources.localeFilters += setOf("en", "zh-rCN")
-        vectorDrawables.useSupportLibrary = true
     }
     androidResources {
-        @Suppress("UnstableApiUsage")
         generateLocaleConfig = true
-    }
-    signingConfigs {
-        create("release") {
-            val properties = Properties().apply {
-                load(rootProject.file("signing.properties").reader())
-            }
-            storeFile = rootProject.file(properties.getProperty("storeFilePath"))
-            storePassword = properties.getProperty("storePassword")
-            keyPassword = properties.getProperty("keyPassword")
-            keyAlias = properties.getProperty("keyAlias")
-        }
+        localeFilters.add("zh-rCN")
     }
     buildTypes {
-        release {
-            isMinifyEnabled = true
-            isShrinkResources = true
-            signingConfig = signingConfigs.getByName("release")
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-        }
-    }
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
-    }
-    kotlinOptions {
-        jvmTarget = "21"
-    }
-    buildFeatures {
-        buildConfig = true
-    }
-    packaging {
-        resources {
-            merges += "META-INF/xposed/*"
+        debug {
+            // Must stay `org.lyaaz.fuckshare.ext`: FuckShare looks this package up.
+            applicationIdSuffix = null
         }
     }
 }
+
 dependencies {
     implementation(project(":ui"))
-
-    implementation("com.google.android.material:material:1.12.0")
-
-    implementation("io.github.libxposed:service:101.0.0")
-    compileOnly("io.github.libxposed:api:101.0.1")
-
-    // compose
-    val composeBom = platform("androidx.compose:compose-bom:2025.05.00")
-    implementation(composeBom)
-
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.activity:activity-compose")
-
-    // Android Studio Preview support
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    debugImplementation("androidx.compose.ui:ui-tooling")
+    implementation(libs.material)
 }
