@@ -314,19 +314,18 @@ class MainHook : XposedModule() {
             packageName: String,
             mimeType: String?
         ): Boolean {
-            val mimeTypeMatch = { pattern: String, type: String? ->
-                pattern in setOf("*", "*/*", type)
-                        || (pattern.endsWith("/*") && type?.startsWith(pattern.removeSuffix("*")) == true)
-            }
-            return rules.map {
-                it.split(':').let {
-                    val first = it[0].ifBlank { "*" }
-                    val second = if (it.size == 1 || it[1].isBlank()) "*" else it[1].lowercase()
-                    first to second
-                }
-            }.any {
-                it.first in setOf("*", packageName)
-                        && mimeTypeMatch(it.second.lowercase(), mimeType?.lowercase())
+            val lowerMimeType = mimeType?.lowercase()
+            return rules.any { rule ->
+                val colonIndex = rule.indexOf(':')
+                val targetPkg = if (colonIndex == -1) rule else rule.substring(0, colonIndex)
+                val targetMime = if (colonIndex == -1) "*" else rule.substring(colonIndex + 1).lowercase()
+
+                val pkgMatch = targetPkg.isBlank() || targetPkg == "*" || targetPkg == packageName
+                if (!pkgMatch) return@any false
+
+                val mimePattern = if (targetMime.isBlank()) "*" else targetMime
+                mimePattern == "*" || mimePattern == "*/*" || mimePattern == lowerMimeType ||
+                        (mimePattern.endsWith("/*") && lowerMimeType?.startsWith(mimePattern.removeSuffix("*")) == true)
             }
         }
 
