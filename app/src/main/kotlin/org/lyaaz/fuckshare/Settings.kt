@@ -6,7 +6,7 @@ class Settings private constructor(private val prefs: SharedPreferences) {
 
     private fun String.toSet(): Set<String> {
         return this.takeIf { it.isNotBlank() }
-            ?.split("[,\\s]+".toRegex())
+            ?.split(SEPARATOR)
             ?.map { it.trim() }
             ?.filter { it.isNotBlank() }
             ?.toSet()
@@ -16,9 +16,17 @@ class Settings private constructor(private val prefs: SharedPreferences) {
         get() {
             return prefs.getBoolean(PREF_ENABLE_HOOK, DEFAULT_ENABLE_HOOK)
         }
+    private var cachedRulesText: String? = null
+    private var cachedRules: Set<String> = DEFAULT_EXCLUDE_PACKAGES
+
     val excludePackages: Set<String>
-        get() {
-            return prefs.getString(PREF_EXCLUDE_PACKAGES, null)?.toSet() ?: DEFAULT_EXCLUDE_PACKAGES
+        @Synchronized get() {
+            val text = prefs.getString(PREF_EXCLUDE_PACKAGES, null)
+            if (text != cachedRulesText) {
+                cachedRules = text?.toSet() ?: DEFAULT_EXCLUDE_PACKAGES
+                cachedRulesText = text
+            }
+            return cachedRules
         }
     val enableForceForwardHook: Boolean
         get() {
@@ -47,6 +55,7 @@ class Settings private constructor(private val prefs: SharedPreferences) {
         }
 
     companion object {
+        private val SEPARATOR = "[,\\s]+".toRegex()
         const val PREF_ENABLE_HOOK = "enable_hook"
         const val PREF_EXCLUDE_PACKAGES = "exclude_packages"
         const val PREF_ENABLE_FORCE_FORWARD_HOOK = "enable_force_forward_hook"
@@ -63,12 +72,6 @@ class Settings private constructor(private val prefs: SharedPreferences) {
         const val DEFAULT_ENABLE_FORCE_DOCUMENT_HOOK = false
         const val DEFAULT_ENABLE_FORCE_PICKER_HOOK = false
 
-        @Volatile
-        private var INSTANCE: Settings? = null
-        fun getInstance(prefs: SharedPreferences): Settings {
-            return INSTANCE ?: synchronized(this) {
-                INSTANCE ?: Settings(prefs).also { INSTANCE = it }
-            }
-        }
+        fun getInstance(prefs: SharedPreferences): Settings = Settings(prefs)
     }
 }

@@ -65,3 +65,8 @@ with tempfile.TemporaryDirectory(prefix='fuckapk-regressions-') as temp:
         'HookProbe.kt': (ROOT / 'verification/HookProbe.kt').read_text().replace('// PRODUCTION_INTERCEPTORS', hook[start:end]),
         'Regression.kt': (ROOT / 'verification/InterceptorRegression.kt').read_text(),
     })
+
+    run('settings', [ext + 'Settings.kt'], {
+        'Preferences.kt': (ROOT / 'verification/Preferences.kt').read_text(),
+        'Regression.kt': (ROOT / 'verification/SettingsRegression.kt').read_text(),
+    })
