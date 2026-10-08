@@ -40,7 +40,7 @@ class SettingsActivity : ComponentActivity(),XposedServiceHelper.OnServiceListen
         setContent {
             Theme {
                 if (isReady) {
-                    SettingsScreen(prefs, setting)
+                    key(prefs) { SettingsScreen(prefs, setting) }
                 }
             }
         }
@@ -70,8 +70,6 @@ class SettingsActivity : ComponentActivity(),XposedServiceHelper.OnServiceListen
 @Composable
 fun SettingsScreen(prefs: SharedPreferences, settings: Settings) {
     val focusManager = LocalFocusManager.current
-    val prefs = remember { prefs }
-    val settings = remember { settings }
     val isKeyboardOpen by keyboardAsState()
 
     LaunchedEffect(isKeyboardOpen) {
