@@ -140,58 +140,47 @@ class MainHook : XposedModule() {
 
     private inner class StartActivityForResultHooker : Hooker {
         override fun intercept(chain: Chain): Any? {
-            runCatching {
+            val args = runCatching {
+                val callingPackage = ""
                 val intent = chain.getArg(0) as? Intent
-                if (intent != null) {
-                    process(intent, "")?.let { newIntent ->
-                        val args = chain.args.toMutableList()
-                        args[0] = newIntent
-                        return chain.proceed(args.toTypedArray())
-                    }
+                intent?.let { process(it, callingPackage) }?.let { newIntent ->
+                    chain.args.toTypedArray().also { it[0] = newIntent }
                 }
             }.onFailure {
                 log(Log.ERROR, TAG, "Error in startActivityForResult hook", it)
-            }
-            return chain.proceed()
+            }.getOrNull()
+            return if (args == null) chain.proceed() else chain.proceed(args)
         }
     }
 
     private inner class StartActivityAsUserHooker : Hooker {
         override fun intercept(chain: Chain): Any? {
-            runCatching {
+            val args = runCatching {
                 val callingPackage = chain.getArg(1) as? String ?: ""
                 val intent = chain.getArg(3) as? Intent
-                if (intent != null) {
-                    process(intent, callingPackage)?.let { newIntent ->
-                        val args = chain.args.toMutableList()
-                        args[3] = newIntent
-                        return chain.proceed(args.toTypedArray())
-                    }
+                intent?.let { process(it, callingPackage) }?.let { newIntent ->
+                    chain.args.toTypedArray().also { it[3] = newIntent }
                 }
             }.onFailure {
                 log(Log.ERROR, TAG, "Error in startActivityAsUser hook", it)
-            }
-            return chain.proceed()
+            }.getOrNull()
+            return if (args == null) chain.proceed() else chain.proceed(args)
         }
     }
 
     private inner class StartActivityIntentSenderHooker : Hooker {
         override fun intercept(chain: Chain): Any? {
-            runCatching {
+            val args = runCatching {
                 val key = getField(chain.getArg(1), "key")
                 val intent = getField(key, "requestIntent") as? Intent
                 val callingPackage = getField(key, "packageName") as? String ?: ""
-                if (intent != null) {
-                    process(intent, callingPackage)?.let { newIntent ->
-                        val args = chain.args.toMutableList()
-                        args[3] = newIntent
-                        return chain.proceed(args.toTypedArray())
-                    }
+                intent?.let { process(it, callingPackage) }?.let { newIntent ->
+                    chain.args.toTypedArray().also { it[3] = newIntent }
                 }
             }.onFailure {
                 log(Log.ERROR, TAG, "Error in startActivityIntentSender hook", it)
-            }
-            return chain.proceed()
+            }.getOrNull()
+            return if (args == null) chain.proceed() else chain.proceed(args)
         }
     }
 
@@ -202,10 +191,10 @@ class MainHook : XposedModule() {
                 val key = getField(record, "key")
 
                 // type 2 is ActivityManager.INTENT_SENDER_ACTIVITY
-                val type = getField(key, "type") as? Int ?: return chain.proceed()
-                if (type != 2) return chain.proceed()
+                val type = getField(key, "type") as? Int ?: return@runCatching
+                if (type != 2) return@runCatching
 
-                val intent = getField(key, "requestIntent") as? Intent ?: return chain.proceed()
+                val intent = getField(key, "requestIntent") as? Intent ?: return@runCatching
                 val callingPackage = getField(key, "packageName") as? String ?: ""
 
                 process(intent, callingPackage)?.let {
@@ -223,11 +212,11 @@ class MainHook : XposedModule() {
             return null
         }
 
-        if (!settings.enableHook || callingPackage in settings.excludePackages) {
-            return null
-        }
+        if (!settings.enableHook) return null
+        val rules = settings.excludePackages
+        if (callingPackage in rules) return null
         val extraIntent = retrieveExtraIntent(Intent(intent)) ?: return null
-        if (excludeRuleMatch(settings.excludePackages, callingPackage, extraIntent.type)) {
+        if (excludeRuleMatch(rules, callingPackage, extraIntent.type)) {
             return null
         }
         if (!actionHookEnabled(extraIntent.action)) {
@@ -261,7 +250,7 @@ class MainHook : XposedModule() {
                 intent,
                 Intent.EXTRA_INTENT,
                 Intent::class.java
-            )?.apply {
+            )?.let { Intent(it) }?.apply {
                 setOf(Intent.EXTRA_INITIAL_INTENTS, Intent.EXTRA_ALTERNATE_INTENTS).forEach {
                     IntentUtils.backupArrayExtras<Intent>(
                         intent,
