@@ -8,9 +8,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.*
-import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.core.content.edit
 import io.github.libxposed.service.XposedService
@@ -19,6 +18,8 @@ import org.lyaaz.ui.PreferenceCategory
 import org.lyaaz.ui.SwitchPreferenceItem
 import org.lyaaz.ui.TextFieldPreference
 import org.lyaaz.ui.keyboardAsState
+import org.lyaaz.ui.SettingsScaffold
+import org.lyaaz.ui.SettingsList
 import org.lyaaz.ui.theme.AppTheme as Theme
 
 class SettingsActivity : ComponentActivity(),XposedServiceHelper.OnServiceListener{
@@ -39,8 +40,10 @@ class SettingsActivity : ComponentActivity(),XposedServiceHelper.OnServiceListen
         currentUiMode = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
         setContent {
             Theme {
-                if (isReady) {
-                    key(prefs) { SettingsScreen(prefs, setting) }
+                SettingsScaffold(stringResource(R.string.app_name)) {
+                    if (isReady) {
+                        key(prefs) { SettingsScreen(prefs, setting) }
+                    }
                 }
             }
         }
@@ -78,21 +81,9 @@ fun SettingsScreen(prefs: SharedPreferences, settings: Settings) {
         }
     }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .imePadding()
-    ) {
+    SettingsList {
         item {
             HookCategory(settings, prefs)
-        }
-        item {
-            Spacer(
-                modifier = Modifier.windowInsetsBottomHeight(
-                    WindowInsets.systemBars
-                )
-            )
         }
     }
 }
@@ -130,10 +121,10 @@ fun HookCategory(settings: Settings, prefs: SharedPreferences) {
             settings.enableForceDocumentHook
         )
     }
-    PreferenceCategory(title = R.string.title_hook) {
+    PreferenceCategory(title = stringResource(R.string.title_hook)) {
         SwitchPreferenceItem(
-            title = R.string.title_enable_hook,
-            summary = R.string.desc_enable_hook,
+            title = stringResource(R.string.title_enable_hook),
+            summary = stringResource(R.string.desc_enable_hook),
             checked = enableHook,
             onCheckedChange = {
                 enableHook = it
@@ -145,8 +136,8 @@ fun HookCategory(settings: Settings, prefs: SharedPreferences) {
         ) {
             Column {
                 TextFieldPreference(
-                    title = R.string.title_exclude_packages,
-                    summary = R.string.desc_exclude_packages,
+                    title = stringResource(R.string.title_exclude_packages),
+                    summary = stringResource(R.string.desc_exclude_packages),
                     value = excludePackages,
                     onValueChange = {
                         if (it.contains('\n')) {
@@ -159,8 +150,8 @@ fun HookCategory(settings: Settings, prefs: SharedPreferences) {
                     }
                 )
                 SwitchPreferenceItem(
-                    title = R.string.title_enable_force_forward_hook,
-                    summary = R.string.desc_enable_force_forward_hook,
+                    title = stringResource(R.string.title_enable_force_forward_hook),
+                    summary = stringResource(R.string.desc_enable_force_forward_hook),
                     checked = enableForceForwardHook,
                     enabled = enableHook,
                     onCheckedChange = {
@@ -169,8 +160,8 @@ fun HookCategory(settings: Settings, prefs: SharedPreferences) {
                     }
                 )
                 SwitchPreferenceItem(
-                    title = R.string.title_enable_force_picker_hook,
-                    summary = R.string.desc_enable_force_picker_hook,
+                    title = stringResource(R.string.title_enable_force_picker_hook),
+                    summary = stringResource(R.string.desc_enable_force_picker_hook),
                     checked = enableForcePickerHook,
                     enabled = enableHook,
                     onCheckedChange = {
@@ -179,8 +170,8 @@ fun HookCategory(settings: Settings, prefs: SharedPreferences) {
                     }
                 )
                 SwitchPreferenceItem(
-                    title = R.string.title_enable_force_content_hook,
-                    summary = R.string.desc_enable_force_content_hook,
+                    title = stringResource(R.string.title_enable_force_content_hook),
+                    summary = stringResource(R.string.desc_enable_force_content_hook),
                     checked = enableForceContentHook,
                     enabled = enableHook,
                     onCheckedChange = {
@@ -189,8 +180,8 @@ fun HookCategory(settings: Settings, prefs: SharedPreferences) {
                     }
                 )
                 SwitchPreferenceItem(
-                    title = R.string.title_enable_force_document_hook,
-                    summary = R.string.desc_enable_force_document_hook,
+                    title = stringResource(R.string.title_enable_force_document_hook),
+                    summary = stringResource(R.string.desc_enable_force_document_hook),
                     checked = enableForceDocumentHook,
                     enabled = enableHook,
                     onCheckedChange = {
