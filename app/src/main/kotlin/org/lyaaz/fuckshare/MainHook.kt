@@ -15,7 +15,6 @@ import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam
 import io.github.libxposed.api.XposedModuleInterface.PackageReadyParam
 import io.github.libxposed.api.XposedModuleInterface.SystemServerStartingParam
 import org.lyaaz.fuckshare.utils.IntentUtils
-import java.lang.reflect.Field
 
 class MainHook : XposedModule() {
 
@@ -72,53 +71,48 @@ class MainHook : XposedModule() {
             log(Log.INFO, TAG, "FS: hooked StartActivityAsUser")
         }
 
+        // Hook the per-send output, not sendInner's input or the shared PendingIntent key.
+        // AOSP 16/17 use a boolean tail; 14/15 use BackgroundStartPrivileges.
         runCatching {
-            val method = activityTaskManagerServiceClass.getDeclaredMethod(
-                "startActivityIntentSender",
-                classLoader.loadClass("android.app.IApplicationThread"),
-                classLoader.loadClass("android.content.IIntentSender"),
-                IBinder::class.java,
-                Intent::class.java,
-                String::class.java,
-                IBinder::class.java,
-                String::class.java,
-                Int::class.javaPrimitiveType,
-                Int::class.javaPrimitiveType,
-                Int::class.javaPrimitiveType,
-                Bundle::class.java
+            val controller = classLoader.loadClass("com.android.server.wm.ActivityStartController")
+            val intType = Int::class.javaPrimitiveType!!
+            val boolType = Boolean::class.javaPrimitiveType!!
+            val optionsType = classLoader.loadClass("com.android.server.wm.SafeActivityOptions")
+            val recordType = classLoader.loadClass("com.android.server.am.PendingIntentRecord")
+            val singlePrefix = arrayOf(
+                intType, intType, intType, String::class.java, String::class.java,
+                Intent::class.java, String::class.java, IBinder::class.java, String::class.java,
+                intType, intType, optionsType, intType,
+                classLoader.loadClass("com.android.server.wm.Task"), String::class.java,
+                boolType, recordType
             )
-            hook(method).intercept(StartActivityIntentSenderHooker())
-        }.onFailure {
-            log(Log.ERROR, TAG, "Failed to hook startActivityIntentSender", it)
-        }.onSuccess {
-            log(Log.INFO, TAG, "FS: hooked StartActivityIntentSender")
-        }
-
-        val pendingIntentRecordClass = runCatching {
-            Class.forName(
-                "com.android.server.am.PendingIntentRecord",
-                false,
-                classLoader
+            val multiplePrefix = arrayOf(
+                intType, intType, intType, String::class.java, String::class.java,
+                Array<Intent>::class.java, Array<String>::class.java, IBinder::class.java,
+                optionsType, intType, boolType, recordType
             )
-        }.onFailure {
-            log(Log.ERROR, TAG, "Failed to find PendingIntentRecord", it)
-        }.getOrNull()
-
-        if (pendingIntentRecordClass != null) {
-            runCatching {
-                var hooked = 0
-                pendingIntentRecordClass.declaredMethods
-                    .filter { it.name == "sendInner" }
-                    .forEach { method ->
-                        hook(method).intercept(PendingIntentRecordSendInnerHooker())
-                        hooked++
+            for ((name, prefix, multiple) in listOf(
+                Triple("startActivityInPackage", singlePrefix, false),
+                Triple("startActivitiesInPackage", multiplePrefix, true)
+            )) {
+                runCatching {
+                    val method = runCatching {
+                        controller.getDeclaredMethod(name, *prefix, boolType)
+                    }.getOrElse {
+                        controller.getDeclaredMethod(
+                            name, *prefix, classLoader.loadClass("android.app.BackgroundStartPrivileges")
+                        )
                     }
-                if (hooked == 0) error("no sendInner methods found")
-            }.onFailure {
-                log(Log.ERROR, TAG, "Failed to hook PendingIntentRecord.sendInner", it)
-            }.onSuccess {
-                log(Log.INFO, TAG, "FS: hooked PendingIntentRecord.sendInner")
+                    check(method.returnType == intType) { "Unexpected return type: $method" }
+                    hook(method).intercept(PendingIntentActivityStartHooker(multiple))
+                }.onFailure {
+                    log(Log.ERROR, TAG, "Unsupported $name signature; leaving original path unchanged", it)
+                }.onSuccess {
+                    log(Log.INFO, TAG, "FS: hooked ActivityStartController.$name")
+                }
             }
+        }.onFailure {
+            log(Log.ERROR, TAG, "PendingIntent forwarding unavailable; leaving original path unchanged", it)
         }
     }
 
@@ -168,46 +162,55 @@ class MainHook : XposedModule() {
         }
     }
 
-    private inner class StartActivityIntentSenderHooker : Hooker {
+    private inner class PendingIntentActivityStartHooker(private val multiple: Boolean) : Hooker {
         override fun intercept(chain: Chain): Any? {
             val args = runCatching {
-                val key = getField(chain.getArg(1), "key")
-                val intent = getField(key, "requestIntent") as? Intent
-                val callingPackage = getField(key, "packageName") as? String ?: ""
-                intent?.let { process(it, callingPackage) }?.let { newIntent ->
-                    chain.args.toTypedArray().also { it[3] = newIntent }
+                // This argument is set by sendInner only after cancellation, one-shot, immutable
+                // and fill-in handling. Do not alter non-PendingIntent package starts.
+                if (chain.getArg(if (multiple) 11 else 16) == null) return@runCatching null
+                val callingPackage = chain.getArg(3) as? String
+                    ?: error("Missing PendingIntent creator package")
+                if (multiple) {
+                    val intents = chain.getArg(5) as? Array<*> ?: error("Missing intents")
+                    val types = chain.getArg(6) as? Array<*> ?: error("Missing resolved types")
+                    check(intents.isNotEmpty() && intents.size == types.size) {
+                        "Unexpected PendingIntent activity stack"
+                    }
+                    check(intents.all { it is Intent } && types.all { it == null || it is String }) {
+                        "Unexpected PendingIntent activity stack elements"
+                    }
+                    val last = intents.last() as Intent
+                    process(last, callingPackage)?.let { forwarded ->
+                        val newIntents = Array(intents.size) { intents[it] as Intent }
+                        val newTypes = Array(types.size) { types[it] as String? }
+                        newIntents[newIntents.lastIndex] = forwarded
+                        newTypes[newTypes.lastIndex] = forwarded.type
+                            ?: if (last.action == Intent.ACTION_CHOOSER) null else types.last() as String?
+                        chain.args.toTypedArray().also {
+                            it[5] = newIntents
+                            it[6] = newTypes
+                        }
+                    }
+                } else {
+                    val intent = chain.getArg(5) as? Intent ?: error("Missing final Intent")
+                    process(intent, callingPackage)?.let { forwarded ->
+                        chain.args.toTypedArray().also {
+                            it[5] = forwarded
+                            it[6] = forwarded.type
+                                ?: if (intent.action == Intent.ACTION_CHOOSER) null else chain.getArg(6)
+                        }
+                    }
                 }
             }.onFailure {
-                log(Log.ERROR, TAG, "Error in startActivityIntentSender hook", it)
+                log(Log.ERROR, TAG, "Cannot forward PendingIntent activity; leaving original path unchanged", it)
             }.getOrNull()
             return if (args == null) chain.proceed() else chain.proceed(args)
         }
     }
 
-    private inner class PendingIntentRecordSendInnerHooker : Hooker {
-        override fun intercept(chain: Chain): Any? {
-            runCatching {
-                val record = chain.thisObject
-                val key = getField(record, "key")
-
-                // type 2 is ActivityManager.INTENT_SENDER_ACTIVITY
-                val type = getField(key, "type") as? Int ?: return@runCatching
-                if (type != 2) return@runCatching
-
-                val intent = getField(key, "requestIntent") as? Intent ?: return@runCatching
-                val callingPackage = getField(key, "packageName") as? String ?: ""
-
-                process(intent, callingPackage)?.let {
-                    setField(key, "requestIntent", it)
-                }
-            }.onFailure {
-                log(Log.ERROR, TAG, "Error in PendingIntentRecord.sendInner hook", it)
-            }
-            return chain.proceed()
-        }
-    }
-
     private fun process(intent: Intent, callingPackage: String): Intent? {
+        // Never remove a descriptor-bearing chooser wrapper before the framework can reject it.
+        if (intent.hasFileDescriptors()) return null
         if (callingPackage == FUCK_SHARE_PACKAGE_NAME || intent.action !in hookedIntents) {
             return null
         }
@@ -318,35 +321,5 @@ class MainHook : XposedModule() {
             }
         }
 
-        private fun getField(obj: Any?, fieldName: String): Any? {
-            if (obj == null) return null
-            var clazz: Class<*>? = obj.javaClass
-            while (clazz != null) {
-                val current = clazz
-                runCatching {
-                    val field: Field = current.getDeclaredField(fieldName)
-                    field.isAccessible = true
-                    return field.get(obj)
-                }
-                clazz = clazz.superclass
-            }
-            throw NoSuchFieldException("Field $fieldName not found in ${obj.javaClass}")
-        }
-
-        private fun setField(obj: Any?, fieldName: String, value: Any?) {
-            if (obj == null) return
-            var clazz: Class<*>? = obj.javaClass
-            while (clazz != null) {
-                val current = clazz
-                runCatching {
-                    val field: Field = current.getDeclaredField(fieldName)
-                    field.isAccessible = true
-                    field.set(obj, value)
-                    return
-                }
-                clazz = clazz.superclass
-            }
-            throw NoSuchFieldException("Field $fieldName not found in ${obj.javaClass}")
-        }
     }
 }
